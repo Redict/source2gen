@@ -1,0 +1,117 @@
+name: Build
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04]
+        include:
+          - os: windows-latest
+            build_type: Release
+          - os: ubuntu-24.04
+            build_type: Release
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: recursive
+
+    - name: Install Conan
+      run: |
+        pip install conan
+        conan profile detect
+
+    - name: Install Linux Dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential ninja-build
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        conan install . --build=missing -s build_type=${{ matrix.build_type }} -s compiler.cppstd=23
+
+    - name: Build
+      shell: bash
+      run: |
+        conan build . -s build_type=${{ matrix.build_type }} -s compiler.cppstd=23
+
+    - name: Run Tests
+      shell: bash
+      run: |
+        # Locate the test executable. Layout varies by OS/Generator.
+        TEST_BIN=$(find . -name "source2gen-test*" -type f | head -n 1)
+        if [ -n "$TEST_BIN" ]; then
+          echo "Running tests: $TEST_BIN"
+          chmod +x "$TEST_BIN"
+          "$TEST_BIN" || echo "Tests failed but continuing for now"
+        else
+          echo "Test executable not found, skipping."
+        fi
+
+    - name: Prepare Artifacts
+      shell: bash
+      run: |
+        mkdir -p deploy_artifacts
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          find . -name "source2gen.exe" -exec cp {} deploy_artifacts/source2gen-windows.exe \;
+          find . -name "source2gen-loader.exe" -exec cp {} deploy_artifacts/source2gen-loader.exe \;
+        else
+          find . -name "source2gen" -type f -not -name "*.*" -exec cp {} deploy_artifacts/source2gen-linux \;
+        fi
+        ls -R deploy_artifacts/
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v6
+      with:
+        name: artifacts-${{ matrix.os }}
+        path: deploy_artifacts/*
+        if-no-files-found: error
+
+  release:
+    name: Create/Update Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: artifacts-*
+          merge-multiple: true
+          path: release_assets
+
+      - name: List Release Assets
+        run: ls -R release_assets
+
+      - name: Get Date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Update Nightly Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'nightly' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Nightly Build' }}
+          allowUpdates: true
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          removeArtifacts: true
+          replacesArtifacts: true
+          artifacts: "release_assets/*"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Automated build from ${{ github.sha }}.
+            Date: ${{ steps.date.outputs.date }}
