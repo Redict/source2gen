@@ -9,12 +9,13 @@ on:
 
 jobs:
   build:
-    name: Build ${{ matrix.os }}
+    name: Build ${{ matrix.game }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-24.04]
+        game: [CS2, SBOX, ARTIFACT2, ARTIFACT1, DOTA2, UNDERLORDS, DESKJOB, DEADLOCK, HL_ALYX, THE_LAB_ROBOT_REPAIR]
         include:
           - os: windows-latest
             build_type: Release
@@ -40,12 +41,12 @@ jobs:
     - name: Configure CMake
       shell: bash
       run: |
-        conan install . --build=missing -s build_type=${{ matrix.build_type }} -s compiler.cppstd=23
+        conan install . --build=missing -s build_type=${{ matrix.build_type }} -s compiler.cppstd=23 -o "game=${{ matrix.game }}"
 
     - name: Build
       shell: bash
       run: |
-        conan build . -s build_type=${{ matrix.build_type }} -s compiler.cppstd=23
+        conan build . -s build_type=${{ matrix.build_type }} -s compiler.cppstd=23 -o "game=${{ matrix.game }}"
 
     - name: Run Tests
       shell: bash
@@ -65,17 +66,17 @@ jobs:
       run: |
         mkdir -p deploy_artifacts
         if [[ "${{ runner.os }}" == "Windows" ]]; then
-          find . -name "source2gen.exe" -exec cp {} deploy_artifacts/source2gen-windows.exe \;
-          find . -name "source2gen-loader.exe" -exec cp {} deploy_artifacts/source2gen-loader.exe \;
+          find . -name "source2gen.exe" -exec cp {} deploy_artifacts/source2gen-${{ matrix.game }}-windows.exe \;
+          find . -name "source2gen-loader.exe" -exec cp {} deploy_artifacts/source2gen-loader-${{ matrix.game }}.exe \;
         else
-          find . -name "source2gen" -type f -not -name "*.*" -exec cp {} deploy_artifacts/source2gen-linux \;
+          find . -name "source2gen" -type f -not -name "*.*" -exec cp {} deploy_artifacts/source2gen-${{ matrix.game }}-linux \;
         fi
         ls -R deploy_artifacts/
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v6
       with:
-        name: artifacts-${{ matrix.os }}
+        name: artifacts-${{ matrix.game }}-${{ matrix.os }}
         path: deploy_artifacts/*
         if-no-files-found: error
 
