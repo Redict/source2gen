@@ -35,7 +35,7 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake build-essential ninja-build
+        sudo apt-get install -y cmake build-essential ninja-build zip
 
     - name: Configure CMake
       shell: bash
@@ -63,12 +63,16 @@ jobs:
     - name: Prepare Artifacts
       shell: bash
       run: |
+        mkdir -p staging
         mkdir -p deploy_artifacts
         if [[ "${{ runner.os }}" == "Windows" ]]; then
-          find . -name "source2gen.exe" -exec cp {} deploy_artifacts/source2gen-windows.exe \;
-          find . -name "source2gen-loader.exe" -exec cp {} deploy_artifacts/source2gen-loader.exe \;
+          find . -name "source2gen.exe" -exec cp {} staging/ \;
+          find . -name "source2gen-loader.exe" -exec cp {} staging/ \;
+          cd staging
+          7z a -tzip "../deploy_artifacts/source2gen-${{ matrix.game }}-windows-${{ github.sha }}.zip" *
         else
-          find . -name "source2gen" -type f -not -name "*.*" -exec cp {} deploy_artifacts/source2gen-linux \;
+          find . -name "source2gen" -type f -not -name "*.*" -exec cp {} staging/ \;
+          cd staging
         fi
         ls -R deploy_artifacts/
 
